@@ -25,7 +25,7 @@ params = study.best_trial.params
 print("Training PPO2 agent with params:", params)
 print("Best trial reward:", -1 * study.best_trial.value)
 
-df = read_parquet_df(input_data_file)
+df = read_parquet_df(input_data_file, size=400000)
 
 test_len = int(len(df) * 0.2)
 train_len = int(len(df)) - test_len

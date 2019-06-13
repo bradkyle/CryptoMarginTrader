@@ -15,11 +15,11 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from stable_baselines.common.policies import MlpLnLstmPolicy
+from stable_baselines.ddpg.policies import LnMlpPolicy
 from stable_baselines.common.vec_env import DummyVecEnv
-from stable_baselines import PPO2
+from stable_baselines import DDPG
 
-from env.BitcoinTradingEnv import BitcoinTradingEnv
+from env.MarginTradingEnv import MarginTradingEnv
 
 from util.read import read_parquet_df
 
@@ -36,7 +36,7 @@ n_test_episodes = 3
 # number of evaluations for pruning per trial
 n_evaluations = 4
 
-df = read_parquet_df(input_data_file, size=150000)
+df = read_parquet_df(input_data_file, size=15000)
 
 train_len = int(len(df) * 0.8)
 
@@ -54,27 +54,31 @@ def optimize_envs(trial):
         'confidence_interval': trial.suggest_uniform('confidence_interval', 0.7, 0.99),
     }
 
-def optimize_ppo2(trial):
+def optimize_ddpg(trial):
     return {
         'n_steps': int(trial.suggest_loguniform('n_steps', 16, 2048)),
         'gamma': trial.suggest_loguniform('gamma', 0.9, 0.9999),
-        'learning_rate': trial.suggest_loguniform('learning_rate', 1e-5, 1.),
-        'ent_coef': trial.suggest_loguniform('ent_coef', 1e-8, 1e-1),
-        'cliprange': trial.suggest_uniform('cliprange', 0.1, 0.4),
-        'noptepochs': int(trial.suggest_loguniform('noptepochs', 1, 48)),
-        'lam': trial.suggest_uniform('lam', 0.8, 1.)
+        'actor_lr': trial.suggest_loguniform('learning_rate', 1e-5, 1.),
+        'critic_lr': trial.suggest_loguniform('learning_rate', 1e-5, 1.),
+        # 'tau': trial.suggest_loguniform('tau', 0, 1),
+        # 'clip_norm': trial.suggest_loguniform('clip_norm', 0.1, 0.4),
+        # 'critic_l2_reg': trial.suggest_loguniform('learning_rate', 0, 1.)
     }
 
 def optimize_agent(trial):
     env_params = optimize_envs(trial)
-    train_env = DummyVecEnv(
-        [lambda: BitcoinTradingEnv(train_df,  **env_params)])
-    test_env = DummyVecEnv(
-        [lambda: BitcoinTradingEnv(test_df, **env_params)])
+    train_env = DummyVecEnv([lambda: MarginTradingEnv(train_df,  **env_params)])
+    test_env = DummyVecEnv([lambda: MarginTradingEnv(test_df, **env_params)])
 
-    model_params = optimize_ppo2(trial)
-    model = PPO2(MlpLnLstmPolicy, train_env, verbose=0, nminibatches=1,
-                 tensorboard_log="./tensorboard", **model_params)
+    model_params = optimize_ddpg(trial)
+    model = DDPG(
+        LnMlpPolicy, 
+        train_env, 
+        verbose=0, 
+        nminibatches=1,
+        tensorboard_log="./tensorboard", 
+        **model_params
+    )
 
     last_reward = -np.finfo(np.float16).max
     evaluation_interval = int(len(train_df) / n_evaluations)
@@ -111,9 +115,12 @@ def optimize_agent(trial):
 
 
 def optimize():
-    study_name = 'ppo2_' + reward_strategy
+    study_name = 'ddpg_' + reward_strategy
     study = optuna.create_study(
-        study_name=study_name, storage=params_db_file, load_if_exists=True)
+        study_name=study_name, 
+        storage=params_db_file, 
+        load_if_exists=True
+    )
 
     try:
         study.optimize(optimize_agent, n_trials=n_trials, n_jobs=n_jobs)

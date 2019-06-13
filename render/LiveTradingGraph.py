@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 from matplotlib import style
 from datetime import datetime
 from pandas.plotting import register_matplotlib_converters
-import pandas as pd
 
 style.use('ggplot')
 register_matplotlib_converters()
@@ -20,8 +19,9 @@ class MarginTradingGraph:
 
     def __init__(self, df):
         self.df = df
-        self.df['date'] = pd.to_datetime(df['timestamp_ms'], unit='ms')
-        self.df = self.df.sort_values('date')
+        self.df['Time'] = self.df['Date'].apply(
+            lambda x: datetime.strptime(x, '%Y-%m-%d %I-%p'))
+        self.df = self.df.sort_values('Time')
 
         # Create a figure on screen and set the title
         self.fig = plt.figure()
@@ -62,11 +62,11 @@ class MarginTradingGraph:
         legend = self.net_worth_ax.legend(loc=2, ncol=2, prop={'size': 8})
         legend.get_frame().set_alpha(0.4)
 
-        last_date = self.df['date'].values[current_step]
+        last_date = self.df['Time'].values[current_step]
         last_net_worth = net_worths[current_step]
 
         # Annotate the current net worth on the net worth graph
-        self.net_worth_ax.annotate('{0:.2f}'.format(last_net_worth[0]), (last_date, last_net_worth),
+        self.net_worth_ax.annotate('{0:.2f}'.format(last_net_worth), (last_date, last_net_worth),
                                    xytext=(last_date, last_net_worth),
                                    bbox=dict(boxstyle='round',
                                              fc='w', ec='k', lw=1),
@@ -88,11 +88,11 @@ class MarginTradingGraph:
         self.price_ax.clear()
 
         # Plot price using candlestick graph from mpl_finance
-        self.price_ax.plot(dates, self.df['close'].values[step_range], color="black")
+        self.price_ax.plot(dates, self.df['Close'].values[step_range], color="black")
 
-        last_date = self.df['date'].values[current_step]
-        last_close = self.df['close'].values[current_step]
-        last_high = self.df['high'].values[current_step]
+        last_date = self.df['Time'].values[current_step]
+        last_close = self.df['Close'].values[current_step]
+        last_high = self.df['High'].values[current_step]
 
         # Print the current price to the price axis
         self.price_ax.annotate('{0:.2f}'.format(last_close), (last_date, last_close),
@@ -109,7 +109,7 @@ class MarginTradingGraph:
     def _render_volume(self, step_range, dates):
         self.volume_ax.clear()
 
-        volume = np.array(self.df['base_volume'].values[step_range])
+        volume = np.array(self.df['Volume BTC'].values[step_range])
 
         self.volume_ax.plot(dates, volume,  color='blue')
         self.volume_ax.fill_between(dates, volume, color='blue', alpha=0.5)
@@ -135,8 +135,8 @@ class MarginTradingGraph:
     def _render_trades(self, step_range, trades):
         for trade in trades:
             if trade['step'] in range(sys.maxsize)[step_range]:
-                date = self.df['date'].values[trade['step']]
-                close = self.df['close'].values[trade['step']]
+                date = self.df['Time'].values[trade['step']]
+                close = self.df['Close'].values[trade['step']]
 
                 if trade['type'] == 'buy':
                     color = 'g'
@@ -152,22 +152,23 @@ class MarginTradingGraph:
         pass
 
     def render(self, current_step, net_worths, benchmarks, trades, loans, repayments, lngs, shts, window_size=200):
-        net_worth = np.round(net_worths[-1],2)
-        initial_net_worth = np.round(net_worths[0], 2)
-        profit_percent = np.round((net_worth - initial_net_worth) / initial_net_worth * 100, 2)
+        net_worth = round(net_worths[-1], 2)
+        initial_net_worth = round(net_worths[0], 2)
+        profit_percent = round((net_worth - initial_net_worth) / initial_net_worth * 100, 2)
 
-        self.fig.suptitle('Net worth: $' + str(net_worth) + ' | Profit: ' + str(profit_percent) + '%')
+        self.fig.suptitle(
+            'Net worth: $' + str(net_worth) + ' | Profit: ' + str(profit_percent) + '%')
 
         window_start = max(current_step - window_size, 0)
         step_range = slice(window_start, current_step + 1)
-        dates = self.df['date'].values[step_range]
+        dates = self.df['Time'].values[step_range]
 
         self._render_net_worth(step_range, dates, current_step, net_worths, benchmarks)
         self._render_price(step_range, dates, current_step)
         self._render_volume(step_range, dates)
         self._render_trades(step_range, trades)
 
-        date_labels = self.df['timestamp_ms'].values[step_range]
+        date_labels = self.df['Date'].values[step_range]
 
         self.price_ax.set_xticklabels(
             date_labels, rotation=45, horizontalalignment='right')

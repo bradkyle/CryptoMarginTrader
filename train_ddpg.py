@@ -3,19 +3,20 @@ import optuna
 import pandas as pd
 import numpy as np
 
-from stable_baselines.common.policies import MlpLnLstmPolicy
+from stable_baselines.common.policies import LnMlpPolicy
 from stable_baselines.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines import A2C, ACKTR, PPO2, DDPG
+from stable_baselines.ddpg.noise import OrnsteinUhlenbeckActionNoise
 
-from env.BitcoinTradingEnv import BitcoinTradingEnv
-from util.indicators import add_indicators
+from env.MarginEnv import MarginEnv
+from util.read import read_parquet_df
 
 curr_idx = -1
 reward_strategy = 'sortino'
-input_data_file = 'data/coinbase_hourly.csv'
+input_data_file = './data/Binance_1m_ETHBTC.parquet'
 params_db_file = 'sqlite:///params.db'
 
-study_name = 'ppo2_' + reward_strategy
+study_name = 'ddpg_' + reward_strategy
 study = optuna.load_study(
     study_name=study_name, 
     storage=params_db_file
@@ -25,10 +26,7 @@ params = study.best_trial.params
 print("Training PPO2 agent with params:", params)
 print("Best trial reward:", -1 * study.best_trial.value)
 
-df = pd.read_csv(input_data_file)
-df = df.drop(['Symbol'], axis=1)
-df = df.sort_values(['Date'])
-df = add_indicators(df.reset_index())
+df = read_parquet_df(input_data_file, size=400000)
 
 test_len = int(len(df) * 0.2)
 train_len = int(len(df)) - test_len
@@ -36,14 +34,14 @@ train_len = int(len(df)) - test_len
 train_df = df[:train_len]
 test_df = df[train_len:]
 
-train_env = DummyVecEnv([lambda: BitcoinTradingEnv(
+train_env = DummyVecEnv([lambda: MarginEnv(
     train_df, 
     reward_func=reward_strategy, 
     forecast_len=int(params['forecast_len']), 
     confidence_interval=params['confidence_interval'])
 ])
 
-test_env = DummyVecEnv([lambda: BitcoinTradingEnv(
+test_env = DummyVecEnv([lambda: MarginEnv(
     test_df, 
     reward_func=reward_strategy, 
     forecast_len=int(params['forecast_len']), 
@@ -61,16 +59,24 @@ model_params = {
 }
 
 if curr_idx == -1:
-    model = PPO2(
-        MlpLnLstmPolicy, 
-        train_env, 
+
+    n_actions = train_env.action_space.shape[-1]
+    action_noise = OrnsteinUhlenbeckActionNoise(
+        mean=np.zeros(n_actions), 
+        sigma=float(0.5) * np.ones(n_actions)
+    )
+
+    model = DDPG(
+        LnMlpPolicy, 
+        train_env,
+        action_noise=action_noise,
         verbose=0, 
         nminibatches=1,
         tensorboard_log="./tensorboard", 
         **model_params
     )
 else:
-    model = PPO2.load('./agents/ppo2_' + reward_strategy + '_' + str(curr_idx) + '.pkl', env=train_env)
+    model = DDPG.load('./agents/ddpg_' + reward_strategy + '_' + str(curr_idx) + '.pkl', env=train_env)
 
 for idx in range(curr_idx + 1, 10):
     print('[', idx, '] Training for: ', train_len, ' time steps')

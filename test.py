@@ -7,7 +7,7 @@ from stable_baselines.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines import A2C, ACKTR, PPO2
 
 from env.BitcoinTradingEnv import BitcoinTradingEnv
-from util.indicators import add_indicators
+from util.read import read_parquet_df
 
 curr_idx = 0
 reward_strategy = 'sortino'
@@ -21,10 +21,7 @@ params = study.best_trial.params
 print("Testing PPO2 agent with params:", params)
 print("Best trial:", -1 * study.best_trial.value)
 
-df = pd.read_csv('./data/coinbase_hourly.csv')
-df = df.drop(['Symbol'], axis=1)
-df = df.sort_values(['Date'])
-df = add_indicators(df.reset_index())
+df = read_parquet_df(input_data_file, size=400000)
 
 test_len = int(len(df) * 0.2)
 train_len = int(len(df)) - test_len
@@ -48,7 +45,10 @@ model_params = {
     'lam': params['lam'],
 }
 
-model = PPO2.load('./agents/ppo2_' + reward_strategy + '_' + str(curr_idx) + '.pkl', env=test_env)
+model = PPO2.load(
+    './agents/ppo2_' + reward_strategy + '_' + str(curr_idx) + '.pkl', 
+    env=test_env
+)
 
 obs, done = test_env.reset(), False
 while not done:

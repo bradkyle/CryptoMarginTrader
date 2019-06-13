@@ -36,7 +36,7 @@ n_test_episodes = 3
 # number of evaluations for pruning per trial
 n_evaluations = 4
 
-df = read_parquet_df(input_data_file, size=150000)
+df = read_parquet_df(input_data_file, size=15000)
 
 train_len = int(len(df) * 0.8)
 
@@ -73,8 +73,14 @@ def optimize_agent(trial):
         [lambda: BitcoinTradingEnv(test_df, **env_params)])
 
     model_params = optimize_ppo2(trial)
-    model = PPO2(MlpLnLstmPolicy, train_env, verbose=0, nminibatches=1,
-                 tensorboard_log="./tensorboard", **model_params)
+    model = PPO2(
+        MlpLnLstmPolicy, 
+        train_env, 
+        verbose=0, 
+        nminibatches=1,
+        tensorboard_log="./tensorboard", 
+        **model_params
+    )
 
     last_reward = -np.finfo(np.float16).max
     evaluation_interval = int(len(train_df) / n_evaluations)
