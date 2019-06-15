@@ -113,6 +113,7 @@ class MarginTradingEnv(gym.Env):
     # TODO
     def _current_price(self):
         return self.df[self.close_key].values[self.current_step + self.forecast_len] #WTF
+        
 
     def _take_action(self, action):
 
@@ -120,7 +121,7 @@ class MarginTradingEnv(gym.Env):
         current_price = self._current_price()
 
         # Get the total representative value in quote asset
-        total_quote = (self.quote_held+(self.base_held*current_price))
+        total_quote = (self.quote_held+(self.base_held*current_price))-(self.quote_debt+(self.base_debt*current_price))
 
         # Find the distribution of value in denominations 
         # representative of the quote asset
@@ -131,68 +132,93 @@ class MarginTradingEnv(gym.Env):
             threshold=0.5
         )
 
-        b=b_dist/current_price
-        q=q_dist
-        sales = 0
+        b = b_dist/current_price
+        nex_b = nex_b/current_price
+        lev_b = lev_b/current_price
+        q = q_dist
+
+        price = 0
         cost = 0
+        sales = 0
         base_sold = 0
         base_bought = 0
 
-        # TODO simulate loss 
-        # TODO simulate gain
+        # lev_q_delta = lev_q - self.quote_debt
 
-        if self.base_held > b:
-            base_sold = self.base_held - b
+        q_delta = q - self.quote_held
+        b_delta = (b - self.base_held)
+        t_delta = abs(b_delta)
 
+        # Sell / Short
+        if self.base_held >= b and self.quote_held <= q:
+            self.side = "sell"
+            
             self.trades.append({
                 'step': self.current_step,
-                'quantity': base_sold, 
+                'quantity': t_delta, 
                 'price': current_price,
                 'type': 'sell'
             })
 
-            price = current_price * (1 - self.commission)
-            sales =  base_sold * price
+            cost =  t_delta * self.commission
 
-            self.base_held -= base_sold
-            self.quote_held += sales
+            self.base_held = b 
+            self.quote_held = q
+
+        # Buy / Long
+        elif self.base_held <= b and self.quote_held >= q:
+            self.side="buy"
             
-        else:
-            base_bought = b - self.base_held
-
             self.trades.append({
                 'step': self.current_step,
-                'quantity': base_bought, 
+                'quantity': t_delta, 
                 'price': current_price,
                 'type': 'buy'
             })
 
-            price = current_price * (1 + self.commission)
-            cost =  base_bought * price
+            cost =  t_delta * self.commission
+        else:
+            raise ValueError("Not buy or sell")
 
-            self.base_held += base_bought
-            self.quote_held -= cost
+        # Todo add decay cost
+
+        # todo randomize
+        if self.base_held <= cost and self.quote_held >= cost:
+            print("bam")
+            self.base_held = b 
+            self.quote_held = q - cost*current_price
+        else:
+            print("bong")
+            self.base_held = b - (cost/current_price)
+            self.quote_held = q
 
         self.base_debt = lev_b
         self.quote_debt = lev_q
+        self.total_debt = (self.quote_debt+self.base_debt*current_price)
+        self.total_value = (self.quote_held + self.base_held*current_price)
+        self.total_value_minus_debt = round(self.total_value - self.total_debt, 6)
 
-        net_worth = (self.quote_held + self.base_held*current_price) - (self.quote_debt+self.base_debt*current_price)
-
-        self.net_worths.append(net_worth)
+        self.net_worths.append(self.total_value_minus_debt)
 
         print("="*80)
         print("step: "+str(self.current_step))
-        print("net worth: "+str(net_worth))
+        print("net worth: "+str(self.total_value_minus_debt))
+        print("side: "+ self.side)
         print("current_price: "+str(current_price))
+        print("price: "+str(price))
         print("action: "+str(action))
         print("quote held: "+str(self.quote_held))
         print("base held: "+str(self.base_held))
+        print("total debt: "+str(self.total_debt))
         print("quote debt: "+str(self.quote_debt))
         print("base debt: "+str(self.base_debt))
         print("base sold: "+str(base_sold))
         print("base bought: "+str(base_bought))
         print("cost: "+str(cost))
         print("sales: "+str(sales))
+        print("q_delta: "+ str(q_delta))
+        print("b_delta: "+ str(b_delta))
+        print("t_delta: "+ str(t_delta))
         print("nex_b: "+ str(nex_b))
         print("nex_q: "+ str(nex_q))
         print("lev_b: "+ str(lev_b))
@@ -202,9 +228,6 @@ class MarginTradingEnv(gym.Env):
         print("done: "+str(self._done()))
         print("reward: " +(str(self._reward())))
         print("="*80)
-
-        if net_worth < 0:
-            raise ValueError("Net worth cant be less than 0.5")
 
         self.account_history = np.append(self.account_history, [
             [self.quote_held],
