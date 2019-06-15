@@ -47,22 +47,26 @@ train_df = df[:validation_len]
 test_df = df[validation_len:]
 
 
+def optimize_action_noise(trial):
+    return {}
+
+def optimize_param_noise(trial):
+    return {}
+
 def optimize_envs(trial):
     return {
         'reward_func': reward_strategy,
-        'forecast_len': int(trial.suggest_loguniform('forecast_len', 1, 200)),
+        'forecast_len': int(trial.suggest_loguniform('forecast_len', 60, 300)),
         'confidence_interval': trial.suggest_uniform('confidence_interval', 0.7, 0.99),
+        'threshold': round(trial.suggest_loguniform('threshold', 0.3, 0.7), 1),
+        'feature_num': round(trial.suggest_loguniform('threshold', 0.3, 0.7), 1),
     }
 
 def optimize_ddpg(trial):
     return {
-        'n_steps': int(trial.suggest_loguniform('n_steps', 16, 2048)),
         'gamma': trial.suggest_loguniform('gamma', 0.9, 0.9999),
-        'actor_lr': trial.suggest_loguniform('learning_rate', 1e-5, 1.),
-        'critic_lr': trial.suggest_loguniform('learning_rate', 1e-5, 1.),
-        # 'tau': trial.suggest_loguniform('tau', 0, 1),
-        # 'clip_norm': trial.suggest_loguniform('clip_norm', 0.1, 0.4),
-        # 'critic_l2_reg': trial.suggest_loguniform('learning_rate', 0, 1.)
+        'actor_lr': trial.suggest_loguniform('actor_lr', 1e-5, 1.),
+        'critic_lr': trial.suggest_loguniform('critic_lr', 1e-5, 1.)
     }
 
 def optimize_agent(trial):
@@ -75,7 +79,6 @@ def optimize_agent(trial):
         LnMlpPolicy, 
         train_env, 
         verbose=0, 
-        nminibatches=1,
         tensorboard_log="./tensorboard", 
         **model_params
     )

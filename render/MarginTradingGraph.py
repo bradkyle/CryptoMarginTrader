@@ -21,6 +21,7 @@ class MarginTradingGraph:
     def __init__(self, df):
         self.df = df
         self.df['date'] = pd.to_datetime(df['timestamp_ms'], unit='ms')
+        self.df['date'].dt.round('15min') 
         self.df = self.df.sort_values('date')
 
         # Create a figure on screen and set the title
@@ -38,11 +39,11 @@ class MarginTradingGraph:
         self.volume_ax = self.price_ax.twinx()
 
         # Create bottom subplot for shared price/volume axis
-        self.position_ax = plt.subplot2grid((6, 1), (2, 0), rowspan=8, colspan=1, sharex=self.net_worth_ax)
+        # self.position_ax = plt.subplot2grid((6, 1), (2, 0), rowspan=8, colspan=1, sharex=self.net_worth_ax)
 
         # Add padding to make graph easier to view
         plt.subplots_adjust(left=0.11, bottom=0.24,
-                            right=0.90, top=0.90, wspace=0.2, hspace=0)
+                            right=0.90, top=0.90, wspace=0.2, hspace=0.2)
 
         # Show the graph without blocking the rest of the program
         plt.show(block=False)
@@ -59,14 +60,14 @@ class MarginTradingGraph:
 
         # Show legend, which uses the label we defined for the plot above
         self.net_worth_ax.legend()
-        legend = self.net_worth_ax.legend(loc=2, ncol=2, prop={'size': 8})
+        legend = self.net_worth_ax.legend(loc=2, ncol=2, prop={'size': 3})
         legend.get_frame().set_alpha(0.4)
 
         last_date = self.df['date'].values[current_step]
         last_net_worth = net_worths[current_step]
 
         # Annotate the current net worth on the net worth graph
-        self.net_worth_ax.annotate('{0:.2f}'.format(last_net_worth[0]), (last_date, last_net_worth),
+        self.net_worth_ax.annotate('{0:.2f}'.format(last_net_worth), (last_date, last_net_worth),
                                    xytext=(last_date, last_net_worth),
                                    bbox=dict(boxstyle='round',
                                              fc='w', ec='k', lw=1),
@@ -74,8 +75,7 @@ class MarginTradingGraph:
                                    fontsize="small")
 
         # Add space above and below min/max net worth
-        self.net_worth_ax.set_ylim(
-            min(net_worths) / 1.25, max(net_worths) * 1.25)
+        self.net_worth_ax.set_ylim(min(net_worths) / 1.25, max(net_worths) * 1.25)
 
     def _render_benchmarks(self, step_range, dates, benchmarks):
         colors = ['orange', 'cyan', 'purple', 'blue', 'magenta', 'yellow', 'black', 'red', 'green']
@@ -152,8 +152,8 @@ class MarginTradingGraph:
         pass
 
     def render(self, current_step, net_worths, benchmarks, trades, loans, repayments, lngs, shts, window_size=200):
-        net_worth = np.round(net_worths[-1],2)
-        initial_net_worth = np.round(net_worths[0], 2)
+        net_worth = np.round(net_worths[-1],5)
+        initial_net_worth = np.round(net_worths[0], 5)
         profit_percent = np.round((net_worth - initial_net_worth) / initial_net_worth * 100, 2)
 
         self.fig.suptitle('Net worth: $' + str(net_worth) + ' | Profit: ' + str(profit_percent) + '%')
@@ -167,7 +167,7 @@ class MarginTradingGraph:
         self._render_volume(step_range, dates)
         self._render_trades(step_range, trades)
 
-        date_labels = self.df['timestamp_ms'].values[step_range]
+        date_labels = self.df['date'].values[step_range]
 
         self.price_ax.set_xticklabels(
             date_labels, rotation=45, horizontalalignment='right')

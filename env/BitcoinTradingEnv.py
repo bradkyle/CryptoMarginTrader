@@ -120,12 +120,15 @@ class BitcoinTradingEnv(gym.Env):
 
         if action_type == 0:
             price = current_price * (1 + self.commission)
-            btc_bought = min(self.balance * amount /
-                             price, self.balance / price)
+            btc_bought = min(
+                self.balance * amount / price,
+                self.balance / price
+            )
             cost = btc_bought * price
 
             self.btc_held += btc_bought
             self.balance -= cost
+
         elif action_type == 1:
             price = current_price * (1 - self.commission)
             btc_sold = self.btc_held * amount
@@ -142,8 +145,7 @@ class BitcoinTradingEnv(gym.Env):
                 'type': 'sell' if btc_sold > 0 else 'buy'
             })
 
-        self.net_worths.append(
-            self.balance + self.btc_held * current_price)
+        self.net_worths.append(self.balance + self.btc_held * current_price)
 
         self.account_history = np.append(self.account_history, [
             [self.balance],

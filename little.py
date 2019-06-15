@@ -8,11 +8,13 @@ from stable_baselines import DDPG
 from env.MarginTradingEnv import MarginTradingEnv
 from env.MarginTradingEnv import MarginTradingEnv
 from util.read import read_parquet_df
+import pyarrow.parquet as pq
 
 curr_idx = -1
 reward_strategy = 'sortino'
-input_data_file = './data/Binance_1m_ETHBTC.parquet'
-df = read_parquet_df(input_data_file, size=1000)
+path = './data/clean.parquet'
+df = pq.read_table(path).to_pandas()[-1000:]
+df.sort_values(['window_end'], inplace=True)
 
 test_len = int(len(df) * 0.2)
 train_len = int(len(df)) - test_len

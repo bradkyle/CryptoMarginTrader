@@ -28,11 +28,10 @@ class MarginTradingEnv(gym.Env):
         initial_balance=1, 
         commission=0.0025, 
         reward_func='sortino', 
-        close_key='close',
+        close_key='close_price',
         date_key='timestamp_ms',
-        features=['open', 'high', 'low', 'close', 'base_volume', 'quote_volume'],
         annualization=365*24*60,
-        max_leverage=1,
+        max_leverage=4,
         **kwargs
     ):
         super(MarginTradingEnv, self).__init__()
@@ -46,10 +45,9 @@ class MarginTradingEnv(gym.Env):
         self.date_key = date_key
         self.position=0.1
 
-        self.df = df.fillna(method='bfill').reset_index()
-        self.stationary_df = log_and_difference(
-            self.df, features
-        )
+        self.df = df[['close_price']].reset_index()
+
+        self.stationary_df = df.drop('close_price', axis=1).reset_index()
 
         benchmarks = kwargs.get('benchmarks', [])
         self.benchmarks = [
@@ -68,9 +66,9 @@ class MarginTradingEnv(gym.Env):
             *benchmarks,
         ]
 
-        self.forecast_len = kwargs.get('forecast_len', 10)
+        self.forecast_len = kwargs.get('forecast_len', 200)
         self.confidence_interval = kwargs.get('confidence_interval', 0.95)
-        self.obs_shape = (1, 5 + len(self.df.columns) - 2 + (self.forecast_len * 3))
+        self.obs_shape = (1, 8 + len(self.stationary_df.columns) + (self.forecast_len * 3))
 
         # Actions of the format -1=Short 1=Long
         self.action_space = spaces.Box(low=-1, high=1, shape=(1,), dtype=np.float32)
@@ -92,7 +90,7 @@ class MarginTradingEnv(gym.Env):
 
         obs = scaled.values[-1]
 
-        past_df = self.stationary_df[self.close_key][:self.current_step + self.forecast_len + 1]
+        past_df = self.stationary_df['all_close_price'][:self.current_step + self.forecast_len + 1]
         forecast_model = SARIMAX(past_df.values, enforce_stationarity=False, simple_differencing=True)
         model_fit = forecast_model.fit(method='bfgs', disp=False)
         forecast = model_fit.get_forecast(
@@ -120,59 +118,137 @@ class MarginTradingEnv(gym.Env):
 
         dist = action[0]
         current_price = self._current_price()
-        threshold = 0.5
 
-        # Long Base: Quote + Leverage > Base (All value stored in base)
-        # Value should be moved from the quote asset into the base
-        # asset
-        # TODO commission + decay
-        # self.position_type = "long"
+        # Get the total representative value in quote asset
+        total_quote = (self.quote_held+(self.base_held*current_price))
 
-        total_quote = (self.quote_held+(self.base_held*current_price)) 
-        total_base = total_quote/current_price
+        # Find the distribution of value in denominations 
+        # representative of the quote asset
+        b_dist, q_dist, nex_b, nex_q, lev_q, lev_b = self._balance_dist(
+            dist, 
+            total_quote,
+            max_leverage=self.max_leverage,
+            threshold=0.5
+        )
 
-        max_quote = total_quote * self.max_leverage
-        max_base = max_quote/current_price
-
-        # dist = 0.6
-
-        next_base_debt = 0
-        next_quote_debt = 0
-        
-        print("total value base: "+str(total_base))
-        print("total value quote: "+str(total_quote))
-        print("next base held: "+str(next_base))
-        print("next quote held: "+str(next_quote))
-        print("next base debt: "+str(next_base_debt))
-        print("next quote debt: "+str(next_quote_debt))
-        
-        self.base_held = next_base
-        self.quote_held = next_quote
-        self.quote_debt = next_quote_debt
-        self.base_debt = next_base_debt
-        self.total_value_base = total_base
-        self.total_value_quote = total_quote
-
-        self.net_worths.append(total_quote)
-
-        base_sold = 0
-        quote_sold = 0
-        base_loaned = 0
-        quote_loaned = 0
+        b=b_dist/current_price
+        q=q_dist
+        sales = 0
         cost = 0
+        base_sold = 0
+        base_bought = 0
 
-        #TODO
-        # self.account_history = np.append(self.account_history, [
-        #     [self.base_held],
-        #     [self.quote_held],
-        #     [self.base_debt],
-        #     [self.quote_debt],
-        #     [base_sold],
-        #     [quote_sold],
-        #     [base_loaned],
-        #     [quote_loaned],
-        #     [cost]
-        # ], axis=1)
+        # TODO simulate loss 
+        # TODO simulate gain
+
+        if self.base_held > b:
+            base_sold = self.base_held - b
+
+            self.trades.append({
+                'step': self.current_step,
+                'quantity': base_sold, 
+                'price': current_price,
+                'type': 'sell'
+            })
+
+            price = current_price * (1 - self.commission)
+            sales =  base_sold * price
+
+            self.base_held -= base_sold
+            self.quote_held += sales
+            
+        else:
+            base_bought = b - self.base_held
+
+            self.trades.append({
+                'step': self.current_step,
+                'quantity': base_bought, 
+                'price': current_price,
+                'type': 'buy'
+            })
+
+            price = current_price * (1 + self.commission)
+            cost =  base_bought * price
+
+            self.base_held += base_bought
+            self.quote_held -= cost
+
+        self.base_debt = lev_b
+        self.quote_debt = lev_q
+
+        net_worth = (self.quote_held + self.base_held*current_price) - (self.quote_debt+self.base_debt*current_price)
+
+        self.net_worths.append(net_worth)
+
+        print("="*80)
+        print("step: "+str(self.current_step))
+        print("net worth: "+str(net_worth))
+        print("current_price: "+str(current_price))
+        print("action: "+str(action))
+        print("quote held: "+str(self.quote_held))
+        print("base held: "+str(self.base_held))
+        print("quote debt: "+str(self.quote_debt))
+        print("base debt: "+str(self.base_debt))
+        print("base sold: "+str(base_sold))
+        print("base bought: "+str(base_bought))
+        print("cost: "+str(cost))
+        print("sales: "+str(sales))
+        print("nex_b: "+ str(nex_b))
+        print("nex_q: "+ str(nex_q))
+        print("lev_b: "+ str(lev_b))
+        print("lev_q: "+ str(lev_q))
+        print("b: "+ str(b))
+        print("q: "+ str(q))
+        print("done: "+str(self._done()))
+        print("reward: " +(str(self._reward())))
+        print("="*80)
+
+        if net_worth < 0:
+            raise ValueError("Net worth cant be less than 0.5")
+
+        self.account_history = np.append(self.account_history, [
+            [self.quote_held],
+            [self.base_held],
+            [self.base_debt],
+            [self.quote_debt],
+            [cost],
+            [sales],
+            [base_sold],
+            [base_bought]
+        ], axis=1)
+
+    def _balance_dist(
+        self,
+        action,
+        total_q,
+        max_leverage=2,
+        threshold=-0.5
+    ):
+        max_allowed = (total_q*max_leverage)
+
+        next_q = total_q*(threshold-action)
+        next_b = total_q*(threshold+action)
+        
+        next_q = clip(total_q, next_q)
+        next_b = clip(total_q, next_b)
+        
+        lev_b = ((action-threshold)*2) * max_allowed
+        lev_q =  -((action+threshold)*2) * max_allowed
+        
+        lev_b = clip(max_allowed, lev_b)
+        lev_q = clip(max_allowed, lev_q)
+
+        q = lev_q+next_q
+        b = lev_b+next_b
+
+        return (
+            b,
+            q,
+            next_b,
+            next_q,
+            lev_b,
+            lev_q
+        )
 
     # todo change to margin
     def _reward(self):
@@ -201,9 +277,7 @@ class MarginTradingEnv(gym.Env):
 
     # TODO
     def _done(self):
-        # TODO
-        # return self.net_worths[-1] < self.initial_balance / 10 or self.current_step == len(self.df) - self.forecast_len - 1
-        return False
+        return self.net_worths[-1] < self.initial_balance / 10 or self.current_step == len(self.df) - self.forecast_len - 1
 
     def reset(self):
         self.quote_held = self.initial_balance
@@ -216,6 +290,9 @@ class MarginTradingEnv(gym.Env):
 
         self.account_history = np.array([
             [self.initial_balance],
+            [0],
+            [0],
+            [0],
             [0],
             [0],
             [0],
@@ -264,3 +341,10 @@ class MarginTradingEnv(gym.Env):
         if self.viewer is not None:
             self.viewer.close()
             self.viewer = None
+
+def clip(bal, scal):
+    if scal < 0:
+        scal = 0 
+    elif scal > bal:
+        scal = bal
+    return scal
