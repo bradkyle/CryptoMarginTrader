@@ -20,7 +20,7 @@ class MarginTradingGraph:
 
     def __init__(self, df):
         self.df = df
-        self.df['date'] = pd.to_datetime(df['timestamp_ms'], unit='ms')
+        self.df['date'] = pd.to_datetime(df['window_end'], unit='ms')
         self.df['date'].dt.round('15min') 
         self.df = self.df.sort_values('date')
 
@@ -88,17 +88,17 @@ class MarginTradingGraph:
         self.price_ax.clear()
 
         # Plot price using candlestick graph from mpl_finance
-        self.price_ax.plot(dates, self.df['close'].values[step_range], color="black")
+        self.price_ax.plot(dates, self.df['close_price'].values[step_range], color="black")
 
         last_date = self.df['date'].values[current_step]
-        last_close = self.df['close'].values[current_step]
-        last_high = self.df['high'].values[current_step]
+        last_close = self.df['close_price'].values[current_step]
+        last_high = self.df['high_price'].values[current_step]
 
         # Print the current price to the price axis
         self.price_ax.annotate('{0:.2f}'.format(last_close), (last_date, last_close),
                                xytext=(last_date, last_high),
                                bbox=dict(boxstyle='round',
-                                         fc='w', ec='k', lw=1),
+                               fc='w', ec='k', lw=1),
                                color="black",
                                fontsize="small")
 
@@ -109,7 +109,7 @@ class MarginTradingGraph:
     def _render_volume(self, step_range, dates):
         self.volume_ax.clear()
 
-        volume = np.array(self.df['base_volume'].values[step_range])
+        volume = np.array(self.df['volume'].values[step_range])
 
         self.volume_ax.plot(dates, volume,  color='blue')
         self.volume_ax.fill_between(dates, volume, color='blue', alpha=0.5)
@@ -136,15 +136,15 @@ class MarginTradingGraph:
         for trade in trades:
             if trade['step'] in range(sys.maxsize)[step_range]:
                 date = self.df['date'].values[trade['step']]
-                close = self.df['close'].values[trade['step']]
+                close_price = self.df['close_price'].values[trade['step']]
 
                 if trade['type'] == 'buy':
                     color = 'g'
                 else:
                     color = 'r'
 
-                self.price_ax.annotate(' ', (date, close),
-                                       xytext=(date, close),
+                self.price_ax.annotate(' ', (date, close_price),
+                                       xytext=(date, close_price),
                                        size="large",
                                        arrowprops=dict(arrowstyle='simple', facecolor=color))
 
@@ -178,5 +178,5 @@ class MarginTradingGraph:
         # Necessary to view frames before they are unrendered
         plt.pause(0.001)
 
-    def close(self):
-        plt.close()
+    def close_price(self):
+        plt.close_price()

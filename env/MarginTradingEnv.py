@@ -11,6 +11,7 @@ from render.MarginTradingGraph import MarginTradingGraph
 from util.stationarization import log_and_difference
 from util.benchmarks import buy_and_hodl, rsi_divergence, sma_crossover
 from util.indicators import add_indicators
+from termcolor import colored
 
 
 # Delete this if debugging
@@ -45,9 +46,9 @@ class MarginTradingEnv(gym.Env):
         self.date_key = date_key
         self.position=0.1
 
-        self.df = df[['close_price']].reset_index()
+        self.df = df[['close_price', 'high_price', 'volume']].reset_index()
 
-        self.stationary_df = df.drop('close_price', axis=1).reset_index()
+        self.stationary_df = df.drop(['close_price', 'high_price', 'volume'], axis=1).reset_index()
 
         benchmarks = kwargs.get('benchmarks', [])
         self.benchmarks = [
@@ -114,6 +115,24 @@ class MarginTradingEnv(gym.Env):
     def _current_price(self):
         return self.df[self.close_key].values[self.current_step + self.forecast_len] #WTF
         
+    def get_value(self):
+        current_price = self._current_price()
+        total_debt = (self.quote_debt+self.base_debt*current_price)
+        total_value = (self.quote_held + self.base_held*current_price)
+        total_value_minus_debt = round(total_value - total_debt, 6)
+        
+        print("="*80)
+        print("current_price: "+ str(current_price))
+        print("total_debt: "+str(total_debt))
+        print("quote debt: "+str(self.quote_debt))
+        print("base_debt: "+str(self.base_debt))
+        print("total_value: "+str(total_value))
+        print("quote held: "+str(self.quote_held))
+        print("base held: "+str(self.base_held))
+        print("total_value_minus_debt: "+str(total_value_minus_debt))
+        print("="*80)
+
+        return total_value, total_value_minus_debt, total_debt
 
     def _take_action(self, action):
 
@@ -142,92 +161,113 @@ class MarginTradingEnv(gym.Env):
         sales = 0
         base_sold = 0
         base_bought = 0
+        q_delta = 0
+        b_delta = 0
+        t_delta = 0
 
         # lev_q_delta = lev_q - self.quote_debt
 
-        q_delta = q - self.quote_held
-        b_delta = (b - self.base_held)
-        t_delta = abs(b_delta)
+        lev_q_delta = (lev_q - self.quote_debt)
+        lev_b_delta = (lev_b - self.base_debt)*current_price
+        
+        # Todo add noise to execution 
 
         # Sell / Short
         if self.base_held >= b and self.quote_held <= q:
             self.side = "sell"
-            
+            q_delta = (q-self.quote_held)
+            b_delta = (b - self.base_held)*current_price
+
+            if abs(q_delta) > abs(b_delta):
+                t_delta = abs(q_delta)
+            else:
+                t_delta = abs(b_delta)
+
             self.trades.append({
                 'step': self.current_step,
-                'quantity': t_delta, 
+                'quantity': q_delta/current_price, 
                 'price': current_price,
                 'type': 'sell'
             })
 
+            exec_prob = 0
             cost =  t_delta * self.commission
 
             self.base_held = b 
-            self.quote_held = q
+            self.quote_held = (q - cost)
 
         # Buy / Long
         elif self.base_held <= b and self.quote_held >= q:
             self.side="buy"
+            q_delta = (q-self.quote_held)/current_price
+            b_delta = (b - self.base_held)
+            t_delta = b_delta - q_delta
+
+            if abs(q_delta) > abs(b_delta):
+                t_delta = abs(q_delta)
+            else:
+                t_delta = abs(b_delta)
             
             self.trades.append({
                 'step': self.current_step,
-                'quantity': t_delta, 
+                'quantity': b_delta, 
                 'price': current_price,
                 'type': 'buy'
             })
 
+            exec_prob = 0
             cost =  t_delta * self.commission
+
+            self.base_held = (b - cost) 
+            self.quote_held = q
         else:
             raise ValueError("Not buy or sell")
-
-        # Todo add decay cost
-
-        # todo randomize
-        if self.base_held <= cost and self.quote_held >= cost:
-            print("bam")
-            self.base_held = b 
-            self.quote_held = q - cost*current_price
-        else:
-            print("bong")
-            self.base_held = b - (cost/current_price)
-            self.quote_held = q
 
         self.base_debt = lev_b
         self.quote_debt = lev_q
         self.total_debt = (self.quote_debt+self.base_debt*current_price)
         self.total_value = (self.quote_held + self.base_held*current_price)
         self.total_value_minus_debt = round(self.total_value - self.total_debt, 6)
+        self.long = 1
+        self.short = 1
 
         self.net_worths.append(self.total_value_minus_debt)
 
-        print("="*80)
-        print("step: "+str(self.current_step))
-        print("net worth: "+str(self.total_value_minus_debt))
-        print("side: "+ self.side)
-        print("current_price: "+str(current_price))
-        print("price: "+str(price))
-        print("action: "+str(action))
-        print("quote held: "+str(self.quote_held))
-        print("base held: "+str(self.base_held))
-        print("total debt: "+str(self.total_debt))
-        print("quote debt: "+str(self.quote_debt))
-        print("base debt: "+str(self.base_debt))
-        print("base sold: "+str(base_sold))
-        print("base bought: "+str(base_bought))
-        print("cost: "+str(cost))
-        print("sales: "+str(sales))
-        print("q_delta: "+ str(q_delta))
-        print("b_delta: "+ str(b_delta))
-        print("t_delta: "+ str(t_delta))
-        print("nex_b: "+ str(nex_b))
-        print("nex_q: "+ str(nex_q))
-        print("lev_b: "+ str(lev_b))
-        print("lev_q: "+ str(lev_q))
-        print("b: "+ str(b))
-        print("q: "+ str(q))
-        print("done: "+str(self._done()))
-        print("reward: " +(str(self._reward())))
-        print("="*80)
+        # reward = self._reward()
+        # print("="*80)
+        # print("step: "+str(self.current_step))
+        # if reward > 0:
+        #     print(colored("net worth: "+str(self.total_value_minus_debt), 'green'))
+        # else:
+        #     print(colored("net worth: "+str(self.total_value_minus_debt), 'red'))
+        # print("side: "+ self.side)
+        # print("current_price: "+str(current_price))
+        # print("price change: "+str(abs(round((current_price-self.prev_price)/self.prev_price, 6))))
+        # print("price: "+str(price))
+        # print("action: "+str(action))
+        # print("quote held: "+str(self.quote_held))
+        # print("base held: "+str(self.base_held))
+        # print("lev_b_delta: "+str(lev_b_delta))
+        # print("lev_q_delta: "+str(lev_q_delta))
+        # print("total debt: "+str(self.total_debt))
+        # print("quote debt: "+str(self.quote_debt))
+        # print("base debt: "+str(self.base_debt))
+        # print("base sold: "+str(base_sold))
+        # print("base bought: "+str(base_bought))
+        # print("cost: "+str(cost))
+        # print("sales: "+str(sales))
+        # print("q_delta: "+ str(q_delta))
+        # print("b_delta: "+ str(b_delta))
+        # print("t_delta: "+ str(t_delta))
+        # print("nex_b: "+ str(nex_b))
+        # print("nex_q: "+ str(nex_q))
+        # print("lev_b: "+ str(lev_b))
+        # print("lev_q: "+ str(lev_q))
+        # print("b: "+ str(b))
+        # print("q: "+ str(q))
+        # print("done: "+str(self._done()))
+        # print("reward: " +(str(reward)))
+        # print("="*80)
 
         self.account_history = np.append(self.account_history, [
             [self.quote_held],
@@ -239,6 +279,8 @@ class MarginTradingEnv(gym.Env):
             [base_sold],
             [base_bought]
         ], axis=1)
+
+        self.prev_price = current_price
 
     def _balance_dist(
         self,
@@ -304,12 +346,14 @@ class MarginTradingEnv(gym.Env):
 
     def reset(self):
         self.quote_held = self.initial_balance
+        self.total_value_minus_debt=self.initial_balance
         self.base_held = 0
         self.net_worths = [self.initial_balance]
         self.current_step = 0
         self.base_debt = 0
         self.quote_debt = 0
         self.position_type="short"
+        self.prev_price = self._current_price()
 
         self.account_history = np.array([
             [self.initial_balance],

@@ -19,7 +19,7 @@ from stable_baselines.common.policies import MlpLnLstmPolicy
 from stable_baselines.common.vec_env import DummyVecEnv
 from stable_baselines import PPO2
 
-from env.BitcoinTradingEnv import BitcoinTradingEnv
+from env.MarginTradingEnv import MarginTradingEnv
 
 from util.read import read_parquet_df
 
@@ -36,7 +36,9 @@ n_test_episodes = 3
 # number of evaluations for pruning per trial
 n_evaluations = 4
 
-df = read_parquet_df(input_data_file, size=15000)
+reward_strategy = 'sortino'
+df = pq.read_table('./data/clean.parquet').to_pandas().head(n=1500)
+df.sort_values(['window_end'], inplace=True)
 
 train_len = int(len(df) * 0.8)
 
@@ -68,9 +70,11 @@ def optimize_ppo2(trial):
 def optimize_agent(trial):
     env_params = optimize_envs(trial)
     train_env = DummyVecEnv(
-        [lambda: BitcoinTradingEnv(train_df,  **env_params)])
+        [lambda: MarginTradingEnv(train_df,  **env_params)]
+    )
     test_env = DummyVecEnv(
-        [lambda: BitcoinTradingEnv(test_df, **env_params)])
+        [lambda: MarginTradingEnv(test_df, **env_params)]
+    )
 
     model_params = optimize_ppo2(trial)
     model = PPO2(
