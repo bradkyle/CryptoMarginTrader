@@ -6,128 +6,16 @@ import pyarrow.parquet as pq
 from fastavro import writer, reader, parse_schema
 import collections
 import ta
+from sklearn.datasets import load_boston
+from sklearn.ensemble import RandomForestRegressor
+import numpy as np
+import os
 
-records = []
-with open('okex_spot_ETH_BTC_60.avro', 'rb') as fo:
-    for record in reader(fo):
-        records.append(record)
+d = "./data/aggregated/"
+files = os.listdir(d)
 
-df = pd.DataFrame(records)
-
-features = [
- 'all_count',
- 'all_close_price',
- 'all_high_price',
- 'all_mean_price',
- 'all_low_price',
- 'all_std_price',
- 'all_close_quantity',
- 'all_high_quantity',
- 'all_mean_quantity',
- 'all_low_quantity',
- 'all_std_quantity',
- 'buy_count',
- 'buy_close_price',
- 'buy_high_price',
- 'buy_mean_price',
- 'buy_low_price',
- 'buy_std_price',
- 'buy_close_quantity',
- 'buy_high_quantity',
- 'buy_mean_quantity',
- 'buy_low_quantity',
- 'buy_std_quantity',
- 'sell_count',
- 'sell_close_price',
- 'sell_high_price',
- 'sell_mean_price',
- 'sell_low_price',
- 'sell_std_price',
- 'sell_close_quantity',
- 'sell_high_quantity',
- 'sell_mean_quantity',
- 'sell_low_quantity',
- 'sell_std_quantity',
- 'ask_0_count',
- 'ask_0_close_price',
- 'ask_0_high_price',
- 'ask_0_mean_price',
- 'ask_0_low_price',
- 'ask_0_std_price',
- 'ask_0_close_quantity',
- 'ask_0_high_quantity',
- 'ask_0_mean_quantity',
- 'ask_0_low_quantity',
- 'ask_0_std_quantity',
- 'ask_1_count',
- 'ask_1_close_price',
- 'ask_1_high_price',
- 'ask_1_mean_price',
- 'ask_1_low_price',
- 'ask_1_std_price',
- 'ask_1_close_quantity',
- 'ask_1_high_quantity',
- 'ask_1_mean_quantity',
- 'ask_1_low_quantity',
- 'ask_1_std_quantity',
- 'ask_2_count',
- 'ask_2_close_price',
- 'ask_2_high_price',
- 'ask_2_mean_price',
- 'ask_2_low_price',
- 'ask_2_std_price',
- 'ask_2_close_quantity',
- 'ask_2_high_quantity',
- 'ask_2_mean_quantity',
- 'ask_2_low_quantity',
- 'ask_2_std_quantity',
- 'bid_0_count',
- 'bid_0_close_price',
- 'bid_0_high_price',
- 'bid_0_mean_price',
- 'bid_0_low_price',
- 'bid_0_std_price',
- 'bid_0_close_quantity',
- 'bid_0_high_quantity',
- 'bid_0_mean_quantity',
- 'bid_0_low_quantity',
- 'bid_0_std_quantity',
- 'bid_1_count',
- 'bid_1_close_price',
- 'bid_1_high_price',
- 'bid_1_mean_price',
- 'bid_1_low_price',
- 'bid_1_std_price',
- 'bid_1_close_quantity',
- 'bid_1_high_quantity',
- 'bid_1_mean_quantity',
- 'bid_1_low_quantity',
- 'bid_1_std_quantity',
- 'bid_2_count',
- 'bid_2_close_price',
- 'bid_2_high_price',
- 'bid_2_mean_price',
- 'bid_2_low_price',
- 'bid_2_std_price',
- 'bid_2_close_quantity',
- 'bid_2_high_quantity',
- 'bid_2_mean_quantity',
- 'bid_2_low_quantity',
- 'bid_2_std_quantity',
- 'all_volume',
- 'all_vwap',
- 'buy_volume',
- 'buy_vwap',
- 'sell_volume',
- 'sell_vwap'
-]
-
-df=df[features+['window_end']]
-df['close_price'] = df['all_close_price']
-
-df.sort_values(by ='window_end', inplace=True)
-df.fillna(method='bfill', inplace=True)
-df.set_index(['window_end'], inplace=True)
+clean_dir = "./data/clean/"
+stat_dir = "./data/stat/"
 
 def add_candle_indicators(
     df, 
@@ -176,43 +64,105 @@ def add_candle_indicators(
     df[l+'dlr'] = ta.daily_log_return(df[ck])
     return df
 
-df = add_candle_indicators(
-    df,
-    l='all_', 
-    ck='all_close_price', 
-    hk='all_high_price', 
-    lk='all_low_price', 
-    vk='all_volume'
-)
+for f in files:
 
-df = add_candle_indicators(
-    df,
-    l='buy_', 
-    ck='buy_close_price', 
-    hk='buy_high_price', 
-    lk='buy_low_price', 
-    vk='buy_volume'
-)
+    name = os.path.splitext(f)[0]
 
-df = add_candle_indicators(
-    df,
-    l='sell_', 
-    ck='sell_close_price', 
-    hk='sell_high_price', 
-    lk='sell_low_price', 
-    vk='sell_volume'
-)
+    records = []
+    with open(d+f, 'rb') as fo:
+        for record in reader(fo):
+            records.append(record)
 
-df.fillna(method='bfill', inplace=True)
+    df = pd.DataFrame(records)
 
-def log_and_difference(df, columns):
-    transformed_df = df.copy()
-    for column in columns:
-        transformed_df.loc[df[column] == 0] = 1E-10
-        transformed_df[column] = np.log(transformed_df[column]) - np.log(transformed_df[column]).shift(1)
-    transformed_df = transformed_df.fillna(method='bfill')
-    return transformed_df
+    df.set_index(['window_end'], inplace=True)
+    df.sort_index(inplace=True)
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna(method='bfill', inplace=True)
+    df.fillna(method='ffill', inplace=True)
 
-sdf = log_and_difference(df, features)
-table = pa.Table.from_pandas(sdf)
-pq.write_table(table, './data/t.parquet')
+    df = add_candle_indicators(
+        df,
+        l='all_', 
+        ck='all_close_price', 
+        hk='all_high_price', 
+        lk='all_low_price', 
+        vk='all_volume'
+    )
+
+    df = add_candle_indicators(
+        df,
+        l='buy_', 
+        ck='buy_close_price', 
+        hk='buy_high_price', 
+        lk='buy_low_price', 
+        vk='buy_volume'
+    )
+
+    df = add_candle_indicators(
+        df,
+        l='sell_', 
+        ck='sell_close_price', 
+        hk='sell_high_price', 
+        lk='sell_low_price', 
+        vk='sell_volume'
+    )
+
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    df.fillna(method='bfill', inplace=True)
+    df.fillna(method='ffill', inplace=True)
+        
+    metcol = [
+        'interval',
+        'quote_asset', 
+        'base_asset',
+        'exchange'
+    ]
+
+    indcol = metcol + [
+        'all_close_price', 
+        'all_volume', 
+        'all_high_price'
+    ]
+
+    indf = df[indcol]
+
+    indf.rename(
+        columns={
+            "all_close_price": "close_price", 
+            "all_volume":"volume", 
+            "all_high_price": "high_price"
+        }, 
+        inplace=True
+    )
+
+    df.drop(
+        columns=metcol, 
+        inplace=True
+    )
+
+    def log_and_difference(df, columns):
+        transformed_df = df.copy()
+        transformed_df[df.eq(0)] = 1E-10
+        for column in columns:
+            x = np.log(transformed_df[column])
+            y = np.log(transformed_df[column]).shift(1)
+            transformed_df[column] = x - y
+        transformed_df = transformed_df.fillna(method='bfill').fillna(method='ffill')
+        return transformed_df
+
+    sdf = log_and_difference(df, df.columns.values)
+
+    fdf = sdf.merge(
+        indf, 
+        how='outer', 
+        left_index=True, 
+        right_index=True
+    )
+
+    fdf.replace([np.inf, -np.inf], np.nan, inplace=True)
+    fdf.fillna(method='bfill', inplace=True)
+    fdf.fillna(method='ffill', inplace=True)
+
+    table = pa.Table.from_pandas(fdf)
+    pq.write_table(table, stat_dir+name+".parquet")

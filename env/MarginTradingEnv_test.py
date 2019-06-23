@@ -225,3 +225,31 @@ def test_drastic_swing_in_price(
 # )
 # def test_drastic_swing_in_price_with_action():
 #    pass
+
+@pytest.mark.parametrize(
+    "quote_held,base_held,price_1,price_2,price_3", 
+    [
+        (1, 2, 0.5, 0.1, 0.5)
+           
+    ]
+)
+def test_drastic_swing_in_price(
+    quote_held,
+    base_held, 
+    price_1,
+    price_2,
+    price_3
+):
+    env = TestMarginTradingEnv(DF)
+    env.reset()
+    env.commission = 0.0025
+    env.max_leverage = 1
+
+    env.initial_balance = quote_held + base_held
+    env.quote_held = quote_held
+    env.base_held = base_held
+    env.base_debt = max(base_held-4, 0)
+    env.quote_debt = max(quote_held-2, 0)
+    env._take_action(np.array([0.0]))
+
+    assert(env.total_value_minus_debt==quote_held+base_held*0.5)

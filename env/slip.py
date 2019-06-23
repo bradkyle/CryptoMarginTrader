@@ -139,3 +139,86 @@ b=b_dist/current_price
                 'price': current_price,
                 'type': 'buy'
             })
+
+def run(self):
+    
+        channels = [
+            "spot/candle60s:"+self.instrument_id,
+            "spot/margin_account:"+self.instrument_id
+        ]
+
+        for event in persist(self.websocket):
+            if event.name == 'poll':
+
+                timestamp = str(self.server_timestamp())
+                login_str = self.login_params(
+                    str(timestamp), 
+                    self.api_key, 
+                    self.passphrase, 
+                    self.secret_key
+                )
+
+                self.websocket.send(login_str)
+
+                sub_param = {"op": "subscribe", "args": channels}
+                sub_str = json.dumps(sub_param)
+                self.websocket.send_text(sub_str)
+
+            elif event.name == 'binary':
+                try:
+                    res = json.loads(self.inflate(event.data))
+                    if "table" in res:
+                        if res["table"] == "spot/margin_account":
+                            self.update_account(res["data"])
+                        elif res["table"] == "spot/order":
+                            self.update_orders(res["data"])   
+                        elif res["table"] == "spot/trade":
+                            pass  
+                    elif "error" in res:
+                        logging.error(res)
+                    elif "event" in res:
+                        if res["event"] == "subscribe":
+                            pass
+                        elif res["event"] == "login":
+                            pass
+                        else:
+                            logging.warn(res)
+                    else:
+                        print(res)
+                        logging.warn(res)
+                except Exception as e:
+                    logging.error(e)
+            elif event.name == "text":
+                print(event)
+
+    def login_params(self, timestamp, api_key, passphrase, secret_key):
+        message = timestamp + 'GET' + '/users/self/verify'
+        mac = hmac.new(bytes(secret_key, encoding='utf8'), bytes(message, encoding='utf-8'), digestmod='sha256')
+        d = mac.digest()
+        sign = base64.b64encode(d)
+
+        login_param = {"op": "login", "args": [api_key, passphrase, timestamp, sign.decode("utf-8")]}
+        login_str = json.dumps(login_param)
+        return login_str
+
+    def get_server_time(self):
+        url = "http://www.okex.com/api/general/v3/time"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return response.json()['iso']
+        else:
+            return ""
+
+    def server_timestamp(self):
+        server_time = self.get_server_time()
+        parsed_t = dp.parse(server_time)
+        timestamp = parsed_t.timestamp()
+        return timestamp
+
+    def inflate(self, data):
+        decompress = zlib.decompressobj(
+                -zlib.MAX_WBITS  # see above
+        )
+        inflated = decompress.decompress(data)
+        inflated += decompress.flush()
+        return inflated

@@ -18,11 +18,13 @@ POSITION_CHART_HEIGHT = 0.33
 class MarginTradingGraph:
     """A Bitcoin trading visualization using matplotlib made to render OpenAI gym environments"""
 
-    def __init__(self, df):
+    def __init__(self, df, account_history):
         self.df = df
         self.df['date'] = pd.to_datetime(df['window_end'], unit='ms')
         self.df['date'].dt.round('15min') 
         self.df = self.df.sort_values('date')
+
+        # print(np.transpose(account_history))
 
         # Create a figure on screen and set the title
         self.fig = plt.figure()
@@ -109,7 +111,7 @@ class MarginTradingGraph:
     def _render_volume(self, step_range, dates):
         self.volume_ax.clear()
 
-        volume = np.array(self.df['volume'].values[step_range])
+        volume = np.array(self.df['all_volume'].values[step_range])
 
         self.volume_ax.plot(dates, volume,  color='blue')
         self.volume_ax.fill_between(dates, volume, color='blue', alpha=0.5)
@@ -148,10 +150,39 @@ class MarginTradingGraph:
                                        size="large",
                                        arrowprops=dict(arrowstyle='simple', facecolor=color))
 
-    def _render_loans(self, step_range, loans):
-        pass
+    def _render_account(self, step_range, dates):
+        self.volume_ax.clear()
 
-    def render(self, current_step, net_worths, benchmarks, trades, loans, repayments, lngs, shts, window_size=200):
+        print(len(self.account_df))
+        print(len(dates))
+
+        quote_held = np.array(self.account_df['quote_held'].values[step_range])
+        base_held = np.array(self.account_df['base_held'].values[step_range])
+
+        self.volume_ax.plot(dates, quote_held,  color='blue')
+        self.volume_ax.fill_between(dates, quote_held, color='blue', alpha=0.5)
+
+        self.volume_ax.plot(dates, base_held,  color='red')
+        self.volume_ax.fill_between(dates, base_held, color='red', alpha=0.5)
+
+        self.volume_ax.set_ylim(0, max(max(quote_held),max(base_held))/ VOLUME_CHART_HEIGHT)
+        self.volume_ax.yaxis.set_ticks([])
+
+    def render(self, current_step, net_worths, benchmarks, trades, account_history, window_size=200):
+        
+        
+        self.account_df = pd.DataFrame(np.transpose(account_history), columns=[
+            'quote_held',
+            'base_held',
+            'base_debt',
+            'quote_debt',
+            'cost',
+            'sales',
+            'base_sold',
+            'base_bought'
+        ])
+
+        
         net_worth = np.round(net_worths[-1],5)
         initial_net_worth = np.round(net_worths[0], 5)
         profit_percent = np.round((net_worth - initial_net_worth) / initial_net_worth * 100, 2)
@@ -164,7 +195,7 @@ class MarginTradingGraph:
 
         self._render_net_worth(step_range, dates, current_step, net_worths, benchmarks)
         self._render_price(step_range, dates, current_step)
-        self._render_volume(step_range, dates)
+        self._render_account(step_range, dates)
         self._render_trades(step_range, trades)
 
         date_labels = self.df['date'].values[step_range]
