@@ -20,30 +20,26 @@ from stable_baselines.common.vec_env import DummyVecEnv
 from stable_baselines import PPO2
 import random
 from random import shuffle
+from nets.CustomCnnPolicy import CustomCnnPolicy
+from nets.CustomLstmPolicy import CustomLstmPolicy
 
 from env.MarginTradingEnv import MarginTradingEnv
 
 reward_strategy = 'sortino'
 
-df = pq.read_table('./data/raw/done.parquet').to_pandas().head(n=60000)
-df.sort_index(inplace=True)
-# df.drop(columns=['interval', 'exchange', 'base_asset', 'quote_asset'], inplace=True)
-
 params_db_file = 'sqlite:///params.db'
 
 # number of parallel jobs
-n_jobs = 6
+n_jobs = 2
 # maximum number of trials for finding the best hyperparams
 n_trials = 1000
-# number of test episodes per trial
-n_test_episodes = 3
 # number of evaluations for pruning per trial
-n_evaluations = 4
+n_evaluations = 6
 
 # Config
 # =============================================================>
 
-train_len = 30000
+train_len = 20000
 m_type = "ppo"
 curr_idx = -1
 reward_strategy = 'sortino'
@@ -69,9 +65,7 @@ def load(files, l):
             dfs.append(df[int(x*l):int(x*l+l)])
     return dfs
 
-dfs = load([
-    './data/raw/check.parquet'
-], l=train_len)
+dfs = load(['./data/clean/Binance_5m_ETHBTC.parquet'], l=train_len)
 
 # Shuffle training data
 shuffle(dfs,random.random)
@@ -81,12 +75,14 @@ def optimize_envs(trial):
         'initial_balance':1000, 
         'action_type': trial.suggest_categorical('action_type', ['continuous', 'discrete_20', 'discrete_5', 'discrete_3', 'discrete_nl_3']),
         'window_size': trial.suggest_categorical('window_size', [5, 10, 20, 40, 80]),
-        'account_history_size': trial.suggest_categorical('account_history_size', [3, 9, 18, 36])
+        'account_history_size': trial.suggest_categorical('account_history_size', [3, 9, 18, 36]),
+        'randomize_balance': 0,
+        'grow_commission': 0
     }
 
 def optimize_policy(trial):
     return {
-        'policy': trial.suggest_categorical('policy', ['MLPLNLSTM', 'MLP', 'MLPLN'])
+        'policy': trial.suggest_categorical('policy', ['MLPLNLSTM', 'CUSTOMCNN', 'CUSTOMLSTM'])
     }
 
 def optimize_ppo2(trial):
@@ -100,28 +96,45 @@ def optimize_ppo2(trial):
         'lam': trial.suggest_uniform('lam', 0.8, 1.)
     }
 
-def optimize_agent(trial):
-    env_params = optimize_envs(trial)
+def create_envs(env_params, idx):
+    df = dfs[idx]
+
+    train_df = df[:int(len(df)*0.8)]
+    test_df = df[int(len(train_df)):]
+
     train_env = DummyVecEnv(
         [lambda: MarginTradingEnv(
-            dfs[0],
+            train_df,
             **env_params
         )]
     )
     test_env = DummyVecEnv(
         [lambda: MarginTradingEnv(
-            dfs[1], 
+            test_df, 
             **env_params
         )]
     )
+    return test_env, train_env
+
+def optimize_agent(trial):
+    env_params = optimize_envs(trial)
+    test_env, train_env = create_envs(env_params, 0) 
 
     # policy_params = optimize_policy(trial)
 
     # pp = policy_params["policy"]
 
+    # if pp == "MLPLNLSTM":
+    #     policy = MlpLnLstmPolicy
+    # elif pp == "CUSTOMCNN":
+    #     policy = CustomCnnPolicy
+    # elif pp == "CUSTOMLSTM":
+    #     policy = CustomLstmPolicy
+    policy = MlpLnLstmPolicy
+
     model_params = optimize_ppo2(trial)
     model = PPO2(
-        MlpLnLstmPolicy, 
+        policy, 
         train_env, 
         verbose=0, 
         nminibatches=1,
@@ -129,41 +142,40 @@ def optimize_agent(trial):
         **model_params
     )
 
-    last_reward = -np.finfo(np.float16).max
+    print("="*90)
+    print(str(model_params))
+    print(str(env_params))
+    print("="*90)
 
-    for eval_idx in range(n_evaluations):
-        print(eval_idx)
+    for eval_idx in range(n_evaluations-1):
         try:
             model.learn(total_timesteps=train_len)
         except AssertionError:
             raise
 
-        rewards = []
-        n_episodes, reward_sum = 0, 0.0
-
+        reward_sum = 0.0
+        done = False
         obs = test_env.reset()
-        while n_episodes < n_test_episodes:
+        
+        while not done:
             action, _ = model.predict(obs)
-            obs, reward, done, _ = test_env.step(action)
+            obs, reward, done, info = test_env.step(action)
             reward_sum += reward
 
-            if done:
-                rewards.append(reward_sum)
-                reward_sum = 0.0
-                n_episodes += 1
-                obs = test_env.reset()
-
-        last_reward = np.mean(rewards)
-        trial.report(-1 * last_reward, eval_idx)
+        trial.report(-1 * reward_sum, eval_idx)
 
         if trial.should_prune(eval_idx):
             raise optuna.structs.TrialPruned()
 
-    return -1 * last_reward
+        eval_idx+=1
+        test_env, train_env = create_envs(env_params, eval_idx)
+        model.set_env(train_env)
+
+    return -1 * reward_sum
 
 
 def optimize():
-    study_name = 'ppo2_discrete_' + reward_strategy
+    study_name = 'ppo2_' + reward_strategy
     study = optuna.create_study(
         study_name=study_name, storage=params_db_file, load_if_exists=True)
 

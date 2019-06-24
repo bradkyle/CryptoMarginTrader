@@ -55,26 +55,39 @@ def load(files, l):
             dfs.append(df[int(x*l):int(x*l+l)])
     return dfs
 
-dfs = load([
-    './data/raw/check.parquet'
-], l=train_len)
+dfs = load(['./data/clean/Binance_5m_ETHBTC.parquet'], l=train_len)
 
 shuffle(dfs,random.random)
-
-train_dfs = dfs[:-1]
-test_dfs = dfs[-1:]
 
 # Environment setup 
 # ========================================================>
 
-train_env = DummyVecEnv([lambda: MarginTradingEnv(
-    train_dfs[0], 
-    reward_func=reward_strategy, 
-    window_size=int(params['window_size']), 
-    action_type=params['action_type'],
-    initial_balance=initial_balance,
-    commission=0.0
-)])
+env_params = {
+
+}
+
+def create_envs(env_params, idx):
+    df = dfs[idx]
+
+    train_df = df[:int(len(df)*0.8)]
+    test_df = df[int(len(train_df)):]
+
+    train_env = DummyVecEnv(
+        [lambda: MarginTradingEnv(
+            train_df,
+            **env_params
+        )]
+    )
+    test_env = DummyVecEnv(
+        [lambda: MarginTradingEnv(
+            test_df, 
+            verbose=True,
+            **env_params
+        )]
+    )
+    return test_env, train_env
+
+test_env, train_env = create_envs(env_params, 0) 
 
 # Model Setup
 # ========================================================> 
@@ -82,41 +95,23 @@ train_env = DummyVecEnv([lambda: MarginTradingEnv(
 model_params = {
     'n_steps': int(params['n_steps']),
     'gamma': params['gamma'],
-    'learning_rate':1e-4,
+    'learning_rate':params["learning_rate"],
     'ent_coef': params['ent_coef'],
     'cliprange': params['cliprange'],
     'noptepochs': int(params['noptepochs']),
     'lam': params['lam'],
 }
 
-if m_type == "ppo2":
-    if curr_idx == -1:
-        model = PPO2(
-            MlpLnLstmPolicy, 
-            train_env, 
-            verbose=0, 
-            nminibatches=1,
-            tensorboard_log="./tensorboard"
-        )
-    else:
-        model = PPO2.load('./agents/'+m_type+'_' + reward_strategy + '_' + str(curr_idx) + '.pkl', env=train_env)
-
-elif m_type == "acktr":
-    model = ACKTR(MlpLnLstmPolicy, train_env, verbose=1)
-
-elif m_type == "acer":
-    model = ACER(MlpLnLstmPolicy, train_env, verbose=1)
-
-elif m_type == "ddpg":
-    if curr_idx == -1:
-        model = DDPG(
-            CnnPolicy, 
-            train_env, 
-            verbose=1, 
-            tensorboard_log="./tensorboard"
-        )
-    else:
-        model = DDPG.load('./agents/'+m_type+'_' + reward_strategy + '_' + str(curr_idx) + '.pkl', env=train_env)
+if curr_idx == -1:
+    model = PPO2(
+        MlpLnLstmPolicy, 
+        train_env, 
+        verbose=0, 
+        nminibatches=1,
+        tensorboard_log="./tensorboard"
+    )
+else:
+    model = PPO2.load('./agents/'+m_type+'_' + reward_strategy + '_' + str(curr_idx) + '.pkl', env=train_env)
 
 # Environment setup 
 # ========================================================>
@@ -129,45 +124,18 @@ frac_comm = 0
 max_comm = 0.003
 
 for idx in range(curr_idx + 1, len(dfs)):
-    episode += 1
-    commission = round(min(frac_comm*(max_comm/upregs), max_comm), 4)
-    print("Commission:"+str(commission))
-
-    if episode%upreg_interval == 0:
-        frac_comm +=1
-
     print('[', idx, '] Training for: ', train_len, ' time steps')
 
     model.learn(total_timesteps=train_len)
     model.save('./agents/'+m_type+'_' +action_type+'_'+ reward_strategy + '_' + str(idx) + '.pkl')
 
-    if episode%2 == 0:
-        done=False
-        test_env = DummyVecEnv([lambda: MarginTradingEnv(
-            test_dfs[0], 
-            reward_func=reward_strategy, 
-            window_size=int(params['window_size']), 
-            action_type=params['action_type'],
-            initial_balance=initial_balance,
-            commission=0.0015,
-            training=False,
-            max_steps=300
-        )])
+    while not done:
+        action, _ = model.predict(obs)
+        obs, reward, done, info = test_env.step(action)
 
-        obs, done = test_env.reset(), False
-        while not done:
-            action, _states = model.predict(obs)
-            obs, reward, done, info = test_env.step(action)
-            # test_env.render(mode="human")
+    idx+=1
+    test_env, train_env = create_envs(env_params, idx)
+    model.set_env(train_env)
 
-    new_env = DummyVecEnv([lambda: MarginTradingEnv(
-        train_dfs[idx], 
-        reward_func=reward_strategy, 
-        window_size=int(params['window_size']), 
-        action_type=params['action_type'],
-        initial_balance=initial_balance,
-        commission=commission
-    )])
 
-    model.set_env(new_env)
 

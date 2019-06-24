@@ -29,7 +29,7 @@ class MarginTradingEnv(gym.Env):
         commission=0.002, 
         close_key='close_price',
         date_key='timestamp_ms',
-        annualization=365*24*20,
+        annualization=365*24*12,
         max_leverage=4,
         training=True,
         max_steps=None,
@@ -307,14 +307,15 @@ class MarginTradingEnv(gym.Env):
             print("reward: " +(str(reward)))
             print("="*80)
         else:
-            print("="*80)
+            print("-"*80)
             print("step: "+str(self.current_step))
             reward = self._reward()
             if reward > 0:
                 print(colored("net worth: "+str(self.total_value_minus_debt), 'green'))
             else:
                 print(colored("net worth: "+str(self.total_value_minus_debt), 'red'))
-            print("="*80)
+            print("reward: " +(str(reward)))
+            print("-"*80)
 
         self.account_history = np.append(self.account_history, [
             [self.quote_held],
@@ -390,7 +391,7 @@ class MarginTradingEnv(gym.Env):
 
         return reward if np.isfinite(reward) else 0
 
-    # TODO
+    # TODO ((total asset- debt )/debt≤10%)
     def _done(self):
         if self.max_steps is not None and self.current_step >= self.max_steps:
             return True
@@ -436,33 +437,29 @@ class MarginTradingEnv(gym.Env):
         reward = self._reward()
         done = self._done()
 
-        if done and not self.training:
-            results = {
-                "net_worth": self.net_worths[-1],
-                "net_worth_std": np.std(self.net_worths),
-                "net_worth_mean": np.mean(self.net_worths),
-                "num_losses": 0,
-                "num_wins": 0,
-                "exposure": 0,
-                "annual_return": 0,
-                "risk_adj_ret": 0,
-                "average_cost": 0,
-                "average_bars_held": 0,
-                "max_consec_win": 0,
-                "max_consec_loss": 0,
-                "max_drawdown": 0,
-                "recovery_factor":0,
-                "carmaxdd": 0,
-                "rarmaxdd": 0,
-                "profitfac": 0,
-                "ulcer": 0,
-                "sharpe": 0,
-                "kratio": 0,
-                "commission": self.commission
-            }
-
-            with open('./results/results.json', 'a') as f:  # Just use 'w' mode in 3.x
-                f.write(str(results)+",\n")
+        # info = {
+        #     "net_worth": self.net_worths[-1],
+        #     "net_worth_std": np.std(self.net_worths),
+        #     "net_worth_mean": np.mean(self.net_worths),
+        #     "num_losses": 0,
+        #     "num_wins": 0,
+        #     "exposure": 0,
+        #     "annual_return": 0,
+        #     "risk_adj_ret": 0,
+        #     "average_cost": 0,
+        #     "average_bars_held": 0,
+        #     "max_consec_win": 0,
+        #     "max_consec_loss": 0,
+        #     "max_drawdown": 0,
+        #     "recovery_factor":0,
+        #     "carmaxdd": 0,
+        #     "rarmaxdd": 0,
+        #     "profitfac": 0,
+        #     "ulcer": 0,
+        #     "sharpe": 0,
+        #     "kratio": 0,
+        #     "commission": self.commission
+        # }
 
         return obs, reward, done, {}
 
