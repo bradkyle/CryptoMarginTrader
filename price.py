@@ -49,8 +49,6 @@ def load(files, l):
 
 dfs = load(['./data/clean/Binance_5m_ETHBTC.parquet'], l=train_len)
 
-
-
 y_features = ['close_price']
 y = df[y_features].shift(-1).fillna(method='ffill')
 x = df[[col for col in df.columns if col not in y_features]]
