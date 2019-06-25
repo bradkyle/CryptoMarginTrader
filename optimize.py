@@ -117,16 +117,6 @@ def optimize_agent(trial):
     env_params = optimize_envs(trial)
     test_env, train_env = create_envs(env_params, 0) 
 
-    # policy_params = optimize_policy(trial)
-
-    # pp = policy_params["policy"]
-
-    # if pp == "MLPLNLSTM":
-    #     policy = MlpLnLstmPolicy
-    # elif pp == "CUSTOMCNN":
-    #     policy = CustomCnnPolicy
-    # elif pp == "CUSTOMLSTM":
-    #     policy = CustomLstmPolicy
     policy = MlpLnLstmPolicy
 
     model_params = optimize_ppo2(trial)

@@ -94,7 +94,7 @@ class MarginTradingEnv(gym.Env):
             *benchmarks,
         ]
 
-        self.obs_shape = (1, (8*5)+(len(self.stationary_df.columns)*self.window_size))
+        self.obs_shape = (1, (8*self.account_history_size)+(len(self.stationary_df.columns)*self.window_size))
 
         # Observes the price action, indicators, account action, price forecasts
         self.observation_space = spaces.Box(low=-1, high=1, shape=self.obs_shape, dtype=np.float16)
@@ -104,7 +104,7 @@ class MarginTradingEnv(gym.Env):
     def _next_observation(self):
 
         features = self.stationary_df[self.current_step: self.current_step + self.window_size].values
-        account = np.transpose(self.account_history[:,-5:])
+        account = np.transpose(self.account_history[:,-self.account_history_size:])
 
         # print(features)
         self.scaler.fit(features)
@@ -418,7 +418,7 @@ class MarginTradingEnv(gym.Env):
             [0],
             [0],
             [0]
-        ], self.window_size+1, axis=1)
+        ], self.account_history_size+1, axis=1)
 
         self.trades = []
         self.loans = []
