@@ -149,7 +149,7 @@ def clean(df):
 
 def main_simple():
 
-    df = pq.read_table("./data/Binance_5m_ETHBTC.parquet").to_pandas()    
+    df = pq.read_table("./data/raw/Binance_5m_ETHBTC.parquet").to_pandas()    
     clean(df)
 
     df.drop(columns=[
@@ -212,17 +212,7 @@ def main_simple():
     print(df.head())
 
     table = pa.Table.from_pandas(df)
-    pq.write_table(table, "./notebooks/check.parquet")
-
-def main_set():
-    files = [
-        "./data/clean/okex_spot_USDT_TRX_PT180S.parquet",
-        "./data/clean/okex_spot_USDT_NEO_PT180S.parquet",
-        "./data/clean/okex_spot_USDT_DASH_PT180S.parquet",
-        "./data/clean/okex_spot_USDT_AE_PT180S.parquet",
-        "./data/clean/okex_spot_USDT_ACT_PT180S.parquet",
-        "./"
-    ]
+    pq.write_table(table, "./data/clean/Binance_5m_ETHBTC_clean.parquet")
 
 
 if __name__ == "__main__":

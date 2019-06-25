@@ -30,7 +30,7 @@ reward_strategy = 'sortino'
 params_db_file = 'sqlite:///params.db'
 
 # number of parallel jobs
-n_jobs = 2
+n_jobs = 12
 # maximum number of trials for finding the best hyperparams
 n_trials = 1000
 # number of evaluations for pruning per trial
@@ -39,7 +39,7 @@ n_evaluations = 6
 # Config
 # =============================================================>
 
-train_len = 20000
+train_len = 40000
 m_type = "ppo"
 curr_idx = -1
 reward_strategy = 'sortino'
@@ -74,10 +74,7 @@ def optimize_envs(trial):
     return {
         'initial_balance':1000, 
         'action_type': trial.suggest_categorical('action_type', ['continuous', 'discrete_20', 'discrete_5', 'discrete_3', 'discrete_nl_3']),
-        'window_size': trial.suggest_categorical('window_size', [5, 10, 20, 40, 80]),
-        'account_history_size': trial.suggest_categorical('account_history_size', [3, 9, 18, 36]),
-        'randomize_balance': 0,
-        'grow_commission': 0
+        'window_size': trial.suggest_categorical('window_size', [5, 10, 20, 40, 80])
     }
 
 def optimize_policy(trial):
