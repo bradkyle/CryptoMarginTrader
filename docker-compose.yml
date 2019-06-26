@@ -1,0 +1,23 @@
+version: '3'
+
+services:
+  postgres:
+    image: postgres:latest
+    restart: always
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: 'postgres'
+    volumes:
+      - database_data:/var/lib/postgresql/data
+
+  margin:
+    image: continuumio/anaconda
+    volumes:
+      - ./:/usr/src/app/
+    links:
+      - postgres
+
+volumes:
+  database_data:
+    driver: local

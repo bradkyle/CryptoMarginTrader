@@ -30,11 +30,11 @@ reward_strategy = 'sortino'
 params_db_file = 'sqlite:///params.db'
 
 # number of parallel jobs
-n_jobs = 12
+n_jobs = 8
 # maximum number of trials for finding the best hyperparams
 n_trials = 1000
 # number of evaluations for pruning per trial
-n_evaluations = 6
+n_evaluations = 2
 
 # Config
 # =============================================================>

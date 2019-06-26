@@ -106,11 +106,9 @@ class MarginTradingEnv(gym.Env):
         features = self.stationary_df[self.current_step: self.current_step + self.window_size].values
         account = np.transpose(self.account_history[:,-self.account_history_size:])
 
-        # print(features)
         self.scaler.fit(features)
         features = self.scaler.transform(features)
 
-        # print(account)
         self.scaler.fit(account)
         account = self.scaler.transform(account)
 
